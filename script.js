@@ -1,4 +1,6 @@
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const hoverCapability = window.matchMedia("(hover: hover) and (pointer: fine)");
+const coarsePointer = window.matchMedia("(hover: none), (pointer: coarse)");
 
 const navToggle = document.querySelector(".nav-toggle");
 const navLinks = document.querySelector(".nav-links");
@@ -8,6 +10,7 @@ const sectionLinks = document.querySelectorAll(".nav-links a");
 const mediaImages = document.querySelectorAll("[data-media-wrapper] img");
 const fallbackImages = document.querySelectorAll("img[data-fallback-src]");
 const videoCards = document.querySelectorAll("[data-video-card]");
+const isTouchMode = () => coarsePointer.matches || navigator.maxTouchPoints > 0;
 
 const closeNavigation = () => {
   if (!navToggle || !navLinks) {
@@ -144,30 +147,64 @@ videoCards.forEach((card) => {
     return;
   }
 
+  const updatePlaybackState = () => {
+    const isPlaying = !video.paused && !video.ended;
+    card.classList.toggle("is-playing", isPlaying);
+    card.classList.toggle("is-paused", !isPlaying);
+  };
+
+  const setInteractiveMode = () => {
+    if (card.classList.contains("is-missing")) {
+      return;
+    }
+
+    card.classList.add("is-interactive");
+    updatePlaybackState();
+  };
+
   const showFallback = () => {
     card.classList.add("is-missing");
   };
 
   const markReady = () => {
     card.classList.remove("is-missing");
+    updatePlaybackState();
   };
 
-  const playVideo = () => {
-    if (reduceMotion.matches || card.classList.contains("is-missing")) {
+  const playVideo = ({ userInitiated = false } = {}) => {
+    if (card.classList.contains("is-missing")) {
       return;
     }
+
+    if (reduceMotion.matches && !userInitiated) {
+      setInteractiveMode();
+      return;
+    }
+
+    video.muted = true;
+    video.defaultMuted = true;
 
     const playPromise = video.play();
 
     if (playPromise && typeof playPromise.catch === "function") {
-      playPromise.catch(() => {
-        // Keep layout stable if autoplay is blocked.
-      });
+      playPromise
+        .then(() => {
+          card.classList.remove("is-interactive");
+          updatePlaybackState();
+        })
+        .catch(() => {
+          setInteractiveMode();
+        });
+      return;
     }
+
+    card.classList.remove("is-interactive");
+    updatePlaybackState();
   };
 
   const pauseVideo = () => {
     video.pause();
+    updatePlaybackState();
   };
 
   let isReady = false;
@@ -182,9 +219,17 @@ videoCards.forEach((card) => {
   }
 
   video.muted = true;
-  video.autoplay = true;
+  video.defaultMuted = true;
+  video.autoplay = !reduceMotion.matches;
   video.loop = true;
   video.playsInline = true;
+  video.setAttribute("playsinline", "");
+  video.setAttribute("webkit-playsinline", "");
+  video.preload = isTouchMode() ? "auto" : "metadata";
+
+  if (isTouchMode()) {
+    card.classList.add("is-interactive");
+  }
 
   video.addEventListener("loadeddata", () => {
     isReady = true;
@@ -194,6 +239,27 @@ videoCards.forEach((card) => {
   video.addEventListener("canplay", () => {
     isReady = true;
     markReady();
+  });
+
+  video.addEventListener("play", () => {
+    card.classList.remove("is-interactive");
+    updatePlaybackState();
+  });
+
+  video.addEventListener("pause", () => {
+    if (isTouchMode() && !card.classList.contains("is-missing")) {
+      card.classList.add("is-interactive");
+    }
+
+    updatePlaybackState();
+  });
+
+  video.addEventListener("ended", () => {
+    if (!card.classList.contains("is-missing")) {
+      card.classList.add("is-interactive");
+    }
+
+    updatePlaybackState();
   });
 
   video.addEventListener("error", showFallback);
@@ -217,7 +283,7 @@ videoCards.forEach((card) => {
         });
       },
       {
-        threshold: 0.35
+        threshold: isTouchMode() ? 0.2 : 0.35
       }
     );
 
@@ -226,13 +292,16 @@ videoCards.forEach((card) => {
     playVideo();
   }
 
-  card.addEventListener("mouseenter", playVideo);
-  card.addEventListener("mouseleave", pauseVideo);
-  card.addEventListener("focusin", playVideo);
-  card.addEventListener("focusout", pauseVideo);
+  if (hoverCapability.matches) {
+    card.addEventListener("mouseenter", () => playVideo());
+    card.addEventListener("mouseleave", pauseVideo);
+    card.addEventListener("focusin", () => playVideo({ userInitiated: true }));
+    card.addEventListener("focusout", pauseVideo);
+  }
+
   card.addEventListener("click", () => {
     if (video.paused) {
-      playVideo();
+      playVideo({ userInitiated: true });
     } else {
       pauseVideo();
     }
