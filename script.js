@@ -12,6 +12,11 @@ const fallbackImages = document.querySelectorAll("img[data-fallback-src]");
 const videoCards = document.querySelectorAll("[data-video-card]");
 const isTouchMode = () => coarsePointer.matches || navigator.maxTouchPoints > 0;
 
+revealItems.forEach((item, index) => {
+  const delay = Math.min(index % 4, 3) * 70;
+  item.style.setProperty("--reveal-delay", `${delay}ms`);
+});
+
 const closeNavigation = () => {
   if (!navToggle || !navLinks) {
     return;
